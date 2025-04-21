@@ -1,9 +1,15 @@
+import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 import 'package:encrypt/encrypt.dart';
 import 'package:pointycastle/asymmetric/api.dart' as pc;
+import 'package:pointycastle/key_generators/api.dart';
+import 'package:pointycastle/key_generators/rsa_key_generator.dart';
+import 'package:pointycastle/pointycastle.dart';
+import 'package:pointycastle/random/fortuna_random.dart';
 
 class DichVuMaHoa {
-  // Tạo khóa ngẫu nhiên
+  // Tạo khóa ngẫu nhiên (cho AES)
   String taoKhoaNgauNhien() {
     const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
     final random = Random.secure();
@@ -15,12 +21,12 @@ class DichVuMaHoa {
   // Mã hóa đối xứng (AES)
   Map<String, String> maHoaAES(String banRo, String khoa) {
     final khoaBytes = Key.fromUtf8(khoa.padRight(32));
-    final iv = IV.fromSecureRandom(16); // Tạo IV ngẫu nhiên
+    final iv = IV.fromSecureRandom(16);
     final maHoa = Encrypter(AES(khoaBytes));
     final encrypted = maHoa.encrypt(banRo, iv: iv);
     return {
       'ciphertext': encrypted.base64,
-      'iv': iv.base64, // Lưu IV để giải mã
+      'iv': iv.base64,
     };
   }
 
@@ -35,41 +41,48 @@ class DichVuMaHoa {
     }
   }
 
-  // Mã hóa bất đối xứng (RSA)
+  // Tạo cặp khóa RSA bằng pointycastle
   Future<Map<String, dynamic>> taoCapKhoaRSA() async {
-    final capKhoa = TaoCapKhoaRSA.taoCapKhoa();
+    final secureRandom = FortunaRandom();
+    // Tạo seed 256-bit (32 byte)
+    final random = Random.secure();
+    final seed = List<int>.generate(32, (_) => random.nextInt(256));
+    secureRandom.seed(KeyParameter(Uint8List.fromList(seed)));
+
+    final keyGen = RSAKeyGenerator()
+      ..init(ParametersWithRandom(
+          RSAKeyGeneratorParameters(BigInt.parse('65537'), 128, 64), secureRandom));
+    final pair = keyGen.generateKeyPair();
+    final publicKey = pair.publicKey as pc.RSAPublicKey;
+    final privateKey = pair.privateKey as pc.RSAPrivateKey;
+
+    // Hiển thị đầy đủ chuỗi base64
+    final publicKeyStr = base64Encode(utf8.encode(publicKey.exponent.toString() + ':' + publicKey.modulus.toString()));
+    final privateKeyStr = base64Encode(utf8.encode(privateKey.exponent.toString() + ':' + privateKey.modulus.toString()));
+
     return {
-      'khoaCongKhai': capKhoa['khoaCongKhai'],
-      'khoaBiMat': capKhoa['khoaBiMat'],
+      'khoaCongKhai': publicKey,
+      'khoaBiMat': privateKey,
+      'khoaCongKhaiStr': publicKeyStr,
+      'khoaBiMatStr': privateKeyStr,
     };
   }
 
   String maHoaRSA(String banRo, pc.RSAPublicKey khoaCongKhai) {
-    final maHoa = Encrypter(RSA(publicKey: khoaCongKhai));
-    return maHoa.encrypt(banRo).base64;
+    try {
+      final maHoa = Encrypter(RSA(publicKey: khoaCongKhai));
+      return maHoa.encrypt(banRo).base64;
+    } catch (e) {
+      throw Exception('Lỗi mã hóa: $e');
+    }
   }
 
   String giaiMaRSA(String banMa, pc.RSAPrivateKey khoaBiMat) {
-    final maHoa = Encrypter(RSA(privateKey: khoaBiMat));
-    return maHoa.decrypt64(banMa);
-  }
-}
-
-// Mock tạo cặp khóa RSA
-class TaoCapKhoaRSA {
-  static Map<String, dynamic> taoCapKhoa() {
-    // Giả lập cho demo, thay bằng tạo khóa thật trong sản xuất
-    return {
-      'khoaCongKhai': pc.RSAPublicKey(
-        BigInt.from(65537), // publicExponent
-        BigInt.parse('12345678901234567890'), // modulus
-      ),
-      'khoaBiMat': pc.RSAPrivateKey(
-        BigInt.parse('12345678901234567890'), // modulus
-        BigInt.from(65537), // privateExponent
-        BigInt.parse('9876543210987654321'), // p
-        BigInt.parse('1231231231231231231'), // q
-      ),
-    };
+    try {
+      final maHoa = Encrypter(RSA(privateKey: khoaBiMat));
+      return maHoa.decrypt64(banMa);
+    } catch (e) {
+      throw Exception('Lỗi giải mã: $e');
+    }
   }
 }

@@ -1,60 +1,120 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:fl_chart/fl_chart.dart';
+import 'package:pointycastle/asymmetric/api.dart' as pc;
 import '../services/crypto_service.dart';
 
-class ManHinhDoiXung extends StatefulWidget {
-  const ManHinhDoiXung({super.key});
+class ManHinhBatDoiXung extends StatefulWidget {
+  const ManHinhBatDoiXung({super.key});
 
   @override
-  State<ManHinhDoiXung> createState() => _ManHinhDoiXungState();
+  State<ManHinhBatDoiXung> createState() => _ManHinhBatDoiXungState();
 }
 
-class _ManHinhDoiXungState extends State<ManHinhDoiXung> {
+class _ManHinhBatDoiXungState extends State<ManHinhBatDoiXung> {
   final DichVuMaHoa _dichVuMaHoa = DichVuMaHoa();
-  final _aliceKeyController = TextEditingController();
   final _alicePlaintextController = TextEditingController();
-  final _bobKeyController = TextEditingController();
   final _bobCiphertextController = TextEditingController();
-  final _eveKeyController = TextEditingController();
   final _eveCiphertextController = TextEditingController();
+  final _evePrivateKeyController = TextEditingController();
+  final _alicePrivateKeyController = TextEditingController();
+  final _alicePublicKeyController = TextEditingController();
+  final _bobPrivateKeyController = TextEditingController();
+  final _bobPublicKeyController = TextEditingController();
+  final _aliceReceivedBobPublicKeyController = TextEditingController();
+  final _bobReceivedAlicePublicKeyController = TextEditingController();
+  pc.RSAPrivateKey? _alicePrivateKey;
+  pc.RSAPublicKey? _alicePublicKey;
+  pc.RSAPrivateKey? _bobPrivateKey;
+  pc.RSAPublicKey? _bobPublicKey;
+  pc.RSAPublicKey? _aliceReceivedBobPublicKey;
+  pc.RSAPublicKey? _bobReceivedAlicePublicKey;
   String _aliceCiphertext = '';
-  String _aliceIv = '';
   String _bobPlaintext = '';
   String _evePlaintext = '';
-  Map<String, int> _plaintextFreq = {};
-  Map<String, int> _ciphertextFreq = {};
 
-  void _generateKey() {
+  Future<void> _generateAliceKeys() async {
+    try {
+      final keys = await _dichVuMaHoa.taoCapKhoaRSA();
+      setState(() {
+        _alicePrivateKey = keys['khoaBiMat'] as pc.RSAPrivateKey;
+        _alicePublicKey = keys['khoaCongKhai'] as pc.RSAPublicKey;
+        _alicePrivateKeyController.text = keys['khoaBiMatStr'] as String;
+        _alicePublicKeyController.text = keys['khoaCongKhaiStr'] as String;
+        _aliceCiphertext = '';
+        _bobPlaintext = '';
+        _evePlaintext = '';
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Lỗi tạo cặp khóa: $e')),
+      );
+    }
+  }
+
+  Future<void> _generateBobKeys() async {
+    try {
+      final keys = await _dichVuMaHoa.taoCapKhoaRSA();
+      setState(() {
+        _bobPrivateKey = keys['khoaBiMat'] as pc.RSAPrivateKey;
+        _bobPublicKey = keys['khoaCongKhai'] as pc.RSAPublicKey;
+        _bobPrivateKeyController.text = keys['khoaBiMatStr'] as String;
+        _bobPublicKeyController.text = keys['khoaCongKhaiStr'] as String;
+        _bobPlaintext = '';
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Lỗi tạo cặp khóa: $e')),
+      );
+    }
+  }
+
+  void _sendPublicKeyToBob() {
+    if (_alicePublicKey == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vui lòng tạo khóa của Alice trước')),
+      );
+      return;
+    }
     setState(() {
-      _aliceKeyController.text = _dichVuMaHoa.taoKhoaNgauNhien();
-      _aliceCiphertext = '';
-      _aliceIv = '';
-      _bobPlaintext = '';
-      _evePlaintext = '';
-      _plaintextFreq = {};
-      _ciphertextFreq = {};
+      _bobReceivedAlicePublicKey = _alicePublicKey;
+      _bobReceivedAlicePublicKeyController.text = _alicePublicKeyController.text;
     });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Đã gửi khóa công khai của Alice cho Bob')),
+    );
+  }
+
+  void _sendPublicKeyToAlice() {
+    if (_bobPublicKey == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vui lòng tạo khóa của Bob trước')),
+      );
+      return;
+    }
+    setState(() {
+      _aliceReceivedBobPublicKey = _bobPublicKey;
+      _aliceReceivedBobPublicKeyController.text = _bobPublicKeyController.text;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Đã gửi khóa công khai của Bob cho Alice')),
+    );
   }
 
   void _encrypt() {
-    if (_aliceKeyController.text.isEmpty || _alicePlaintextController.text.isEmpty) {
+    if (_alicePlaintextController.text.isEmpty || _aliceReceivedBobPublicKey == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng nhập khóa và văn bản gốc')),
+        const SnackBar(content: Text('Vui lòng nhập văn bản và nhận khóa công khai của Bob')),
       );
       return;
     }
     try {
-      final result = _dichVuMaHoa.maHoaAES(
-        _alicePlaintextController.text,
-        _aliceKeyController.text,
-      );
       setState(() {
-        _aliceCiphertext = result['ciphertext']!;
-        _aliceIv = result['iv']!;
+        _aliceCiphertext = _dichVuMaHoa.maHoaRSA(
+          _alicePlaintextController.text,
+          _aliceReceivedBobPublicKey!,
+        );
         _bobCiphertextController.text = _aliceCiphertext;
         _eveCiphertextController.text = _aliceCiphertext;
-        _updateFrequencyAnalysis();
       });
     } catch (e) {
       setState(() {
@@ -64,19 +124,19 @@ class _ManHinhDoiXungState extends State<ManHinhDoiXung> {
   }
 
   void _decryptBob() {
-    if (_bobKeyController.text.isEmpty || _bobCiphertextController.text.isEmpty || _aliceIv.isEmpty) {
+    if (_bobCiphertextController.text.isEmpty || _bobPrivateKey == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng nhập khóa, văn bản mã hóa và đảm bảo đã mã hóa trước')),
+        const SnackBar(content: Text('Vui lòng nhập văn bản mã hóa và tạo khóa của Bob')),
       );
       return;
     }
     try {
+      final plaintext = _dichVuMaHoa.giaiMaRSA(
+        _bobCiphertextController.text,
+        _bobPrivateKey!,
+      );
       setState(() {
-        _bobPlaintext = _dichVuMaHoa.giaiMaAES(
-          _bobCiphertextController.text,
-          _bobKeyController.text,
-          _aliceIv,
-        );
+        _bobPlaintext = plaintext;
       });
     } catch (e) {
       setState(() {
@@ -86,39 +146,39 @@ class _ManHinhDoiXungState extends State<ManHinhDoiXung> {
   }
 
   void _decryptEve() {
-    if (_eveKeyController.text.isEmpty || _eveCiphertextController.text.isEmpty || _aliceIv.isEmpty) {
+    if (_eveCiphertextController.text.isEmpty || _evePrivateKeyController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng nhập khóa, văn bản mã hóa và đảm bảo đã mã hóa trước')),
+        const SnackBar(content: Text('Vui lòng nhập văn bản mã hóa và khóa bí mật')),
       );
       return;
     }
     try {
+      final plaintext = _dichVuMaHoa.giaiMaRSA(
+        _eveCiphertextController.text,
+        _bobPrivateKey!,
+      );
       setState(() {
-        _evePlaintext = _dichVuMaHoa.giaiMaAES(
-          _eveCiphertextController.text,
-          _eveKeyController.text,
-          _aliceIv,
-        );
+        _evePlaintext = plaintext;
       });
     } catch (e) {
       setState(() {
-        _evePlaintext = 'Lỗi: $e';
+        _evePlaintext = 'Lỗi: Khóa không đúng hoặc văn bản mã hóa không hợp lệ';
       });
     }
   }
 
-  void _copyKey() {
-    Clipboard.setData(ClipboardData(text: _aliceKeyController.text));
+  void _copyText(String text) {
+    Clipboard.setData(ClipboardData(text: text));
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Đã sao chép khóa')),
+      const SnackBar(content: Text('Đã sao chép')),
     );
   }
 
-  void _pasteKey() async {
+  void _pasteText(TextEditingController controller) async {
     final clipboardData = await Clipboard.getData('text/plain');
     if (clipboardData != null && clipboardData.text != null) {
       setState(() {
-        _bobKeyController.text = clipboardData.text!;
+        controller.text = clipboardData.text!;
       });
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -127,29 +187,18 @@ class _ManHinhDoiXungState extends State<ManHinhDoiXung> {
     }
   }
 
-  void _updateFrequencyAnalysis() {
-    _plaintextFreq = _calculateFrequency(_alicePlaintextController.text);
-    _ciphertextFreq = _calculateFrequency(_aliceCiphertext);
-  }
-
-  Map<String, int> _calculateFrequency(String text) {
-    final freq = <String, int>{};
-    for (var char in text.toLowerCase().split('')) {
-      if (char.isNotEmpty && RegExp(r'[a-z0-9]').hasMatch(char)) {
-        freq[char] = (freq[char] ?? 0) + 1;
-      }
-    }
-    return freq;
-  }
-
   @override
   void dispose() {
-    _aliceKeyController.dispose();
     _alicePlaintextController.dispose();
-    _bobKeyController.dispose();
     _bobCiphertextController.dispose();
-    _eveKeyController.dispose();
     _eveCiphertextController.dispose();
+    _evePrivateKeyController.dispose();
+    _alicePrivateKeyController.dispose();
+    _alicePublicKeyController.dispose();
+    _bobPrivateKeyController.dispose();
+    _bobPublicKeyController.dispose();
+    _aliceReceivedBobPublicKeyController.dispose();
+    _bobReceivedAlicePublicKeyController.dispose();
     super.dispose();
   }
 
@@ -157,7 +206,7 @@ class _ManHinhDoiXungState extends State<ManHinhDoiXung> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Mã Hóa Đối Xứng'),
+        title: const Text('Mã Hóa Bất Đối Xứng'),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -174,27 +223,68 @@ class _ManHinhDoiXungState extends State<ManHinhDoiXung> {
                   children: [
                     const Text('Người Gửi (Alice)', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                     TextField(
-                      controller: _aliceKeyController,
+                      controller: _alicePrivateKeyController,
                       decoration: InputDecoration(
-                        labelText: 'Khóa Chia Sẻ',
+                        labelText: 'Khóa Bí Mật',
                         border: const OutlineInputBorder(),
                         suffixIcon: IconButton(
                           icon: const Icon(Icons.copy, size: 20),
-                          onPressed: _copyKey,
+                          onPressed: () => _copyText(_alicePrivateKeyController.text),
                         ),
                       ),
+                      readOnly: true,
                     ),
                     const SizedBox(height: 8),
-                    ElevatedButton(onPressed: _generateKey, child: const Text('Tạo Khóa Ngẫu Nhiên')),
+                    ElevatedButton(
+                      onPressed: _generateAliceKeys,
+                      child: const Text('Tạo Cặp Khóa'),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _alicePublicKeyController,
+                      decoration: InputDecoration(
+                        labelText: 'Khóa Công Khai',
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.copy, size: 20),
+                          onPressed: () => _copyText(_alicePublicKeyController.text),
+                        ),
+                      ),
+                      readOnly: true,
+                    ),
+                    const SizedBox(height: 8),
+                    ElevatedButton(
+                      onPressed: _sendPublicKeyToBob,
+                      child: const Text('Gửi Khóa Công Khai Cho Bob'),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _aliceReceivedBobPublicKeyController,
+                      decoration: InputDecoration(
+                        labelText: 'Khóa Công Khai Của Bob',
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.paste, size: 20),
+                          onPressed: () => _pasteText(_aliceReceivedBobPublicKeyController),
+                        ),
+                      ),
+                      readOnly: true,
+                    ),
                     const SizedBox(height: 8),
                     TextField(
                       controller: _alicePlaintextController,
-                      decoration: const InputDecoration(labelText: 'Văn Bản Gốc Cho Bob', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(
+                        labelText: 'Văn Bản Gốc Cho Bob',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
                     const SizedBox(height: 8),
-                    ElevatedButton(onPressed: _encrypt, child: const Text('Mã Hóa')),
+                    ElevatedButton(
+                      onPressed: _encrypt,
+                      child: const Text('Mã Hóa'),
+                    ),
                     const SizedBox(height: 8),
-                    Text('Văn Bản Mã Hóa: $_aliceCiphertext', style: const TextStyle(fontSize: 16)),
+                    Text('Văn Bản Mã Hóa Cho Bob: $_aliceCiphertext', style: const TextStyle(fontSize: 16)),
                   ],
                 ),
               ),
@@ -211,23 +301,66 @@ class _ManHinhDoiXungState extends State<ManHinhDoiXung> {
                   children: [
                     const Text('Người Nhận (Bob)', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                     TextField(
-                      controller: _bobKeyController,
+                      controller: _bobPrivateKeyController,
                       decoration: InputDecoration(
-                        labelText: 'Khóa Chia Sẻ',
+                        labelText: 'Khóa Bí Mật',
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.copy, size: 20),
+                          onPressed: () => _copyText(_bobPrivateKeyController.text),
+                        ),
+                      ),
+                      readOnly: true,
+                    ),
+                    const SizedBox(height: 8),
+                    ElevatedButton(
+                      onPressed: _generateBobKeys,
+                      child: const Text('Tạo Cặp Khóa'),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _bobPublicKeyController,
+                      decoration: InputDecoration(
+                        labelText: 'Khóa Công Khai',
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.copy, size: 20),
+                          onPressed: () => _copyText(_bobPublicKeyController.text),
+                        ),
+                      ),
+                      readOnly: true,
+                    ),
+                    const SizedBox(height: 8),
+                    ElevatedButton(
+                      onPressed: _sendPublicKeyToAlice,
+                      child: const Text('Gửi Khóa Công Khai Cho Alice'),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _bobReceivedAlicePublicKeyController,
+                      decoration: InputDecoration(
+                        labelText: 'Khóa Công Khai Của Alice',
                         border: const OutlineInputBorder(),
                         suffixIcon: IconButton(
                           icon: const Icon(Icons.paste, size: 20),
-                          onPressed: _pasteKey,
+                          onPressed: () => _pasteText(_bobReceivedAlicePublicKeyController),
                         ),
                       ),
+                      readOnly: true,
                     ),
                     const SizedBox(height: 8),
                     TextField(
                       controller: _bobCiphertextController,
-                      decoration: const InputDecoration(labelText: 'Văn Bản Mã Hóa Từ Alice', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(
+                        labelText: 'Văn Bản Mã Hóa Từ Alice',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
                     const SizedBox(height: 8),
-                    ElevatedButton(onPressed: _decryptBob, child: const Text('Giải Mã')),
+                    ElevatedButton(
+                      onPressed: _decryptBob,
+                      child: const Text('Giải Mã'),
+                    ),
                     const SizedBox(height: 8),
                     Text('Văn Bản Gốc: $_bobPlaintext', style: const TextStyle(fontSize: 16)),
                   ],
@@ -246,71 +379,35 @@ class _ManHinhDoiXungState extends State<ManHinhDoiXung> {
                   children: [
                     const Text('Kẻ Nghe Lén (Eve)', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                     TextField(
-                      controller: _eveKeyController,
-                      decoration: const InputDecoration(labelText: 'Khóa Bị Đánh Cắp', border: OutlineInputBorder()),
+                      controller: _evePrivateKeyController,
+                      decoration: InputDecoration(
+                        labelText: 'Khóa Bí Mật (Giả Lập)',
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.paste, size: 20),
+                          onPressed: () => _pasteText(_evePrivateKeyController),
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 8),
                     TextField(
                       controller: _eveCiphertextController,
-                      decoration: const InputDecoration(labelText: 'Văn Bản Mã Hóa Từ Alice', border: OutlineInputBorder()),
-                    ),
-                    const SizedBox(height: 8),
-                    ElevatedButton(onPressed: _decryptEve, child: const Text('Giải Mã')),
-                    const SizedBox(height: 8),
-                    Text('Văn Bản Gốc: $_evePlaintext', style: const TextStyle(fontSize: 16)),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 16),
-            // Frequency Analysis
-            Card(
-              elevation: 4,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Phân Tích Tần Suất Ký Tự', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      height: 200,
-                      child: BarChart(
-                        BarChartData(
-                          titlesData: FlTitlesData(
-                            bottomTitles: AxisTitles(
-                              sideTitles: SideTitles(
-                                showTitles: true,
-                                getTitlesWidget: (value, meta) {
-                                  final chars = (_plaintextFreq.keys.toList() + _ciphertextFreq.keys.toList()).toSet().toList();
-                                  if (value.toInt() < chars.length) {
-                                    return Text(chars[value.toInt()]);
-                                  }
-                                  return const Text('');
-                                },
-                              ),
-                            ),
-                            leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true)),
-                          ),
-                          barGroups: [
-                            ..._plaintextFreq.entries.map((e) {
-                              return BarChartGroupData(
-                                x: (_plaintextFreq.keys.toList() + _ciphertextFreq.keys.toList()).toSet().toList().indexOf(e.key),
-                                barRods: [BarChartRodData(toY: e.value.toDouble(), color: Colors.blue)],
-                              );
-                            }),
-                            ..._ciphertextFreq.entries.map((e) {
-                              return BarChartGroupData(
-                                x: (_plaintextFreq.keys.toList() + _ciphertextFreq.keys.toList()).toSet().toList().indexOf(e.key),
-                                barRods: [BarChartRodData(toY: e.value.toDouble(), color: Colors.red)],
-                              );
-                            }),
-                          ],
+                      decoration: InputDecoration(
+                        labelText: 'Văn Bản Mã Hóa Từ Alice',
+                        border: OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.paste, size: 20),
+                          onPressed: () => _pasteText(_eveCiphertextController),
                         ),
                       ),
                     ),
-                    const Text('Xanh: Văn bản gốc, Đỏ: Văn bản mã hóa'),
+                    const SizedBox(height: 8),
+                    ElevatedButton(
+                      onPressed: _decryptEve,
+                      child: const Text('Giải Mã'),
+                    ),
+                    const SizedBox(height: 8),
+                    Text('Văn Bản Gốc: $_evePlaintext', style: const TextStyle(fontSize: 16)),
                   ],
                 ),
               ),
